@@ -1,0 +1,41 @@
+In my implementation, I had written 'make_parser' in terms of 'make_matcher'. 
+
+Unfortunately, I was unable to figure out how to directly use 'make_matcher'
+within the 'make_parser' function, so there is a lot of duplicated code. The 
+two functions are similar in that they both are creating a function based on 
+a given grammar that will parse through the rules of the grammar and match 
+a given fragment based on a given acceptor function. So, I had used the same 
+process to parse through the grammar and check against the fragment in 
+'make_matcher' and 'make_parser', which is where the majority of the duplicated
+code comes from. However, the main differences between the two functions lie in 
+the parse tree generation. In order to return the parse tree, I had to add 
+arguments to the helper functions that would pass the computed trees to the next 
+recursive call. And at each parsed symbol, the tree would be updated with the 
+new path. Another difference is that the 'make_parser' function always uses the
+same acceptor, which doesn't return the accepted suffix, but the parse tree 
+when the acceptor succeeds. 
+
+As for the weaknesses in my implementation, neither make_matcher or make_parser
+is able to handle grammars that contain rules that loop back on itself. Take for
+example, the following grammar and function call:
+
+    type infinite_nt =
+    | S | A 
+
+    let infinite_gram = (S,
+    function
+        | S -> [[N S; N A]; [N A]]
+        | A -> [[T "a"]])
+    
+    make_matcher infinite_gram accept_all ["a"]
+
+My implementation results in this call going into an infinite loop. With the 
+starting symbol 'S', make matcher will first expand to the first rule for 'S'
+which is 'SA'. Then it will expand the first nonterminal 'S' in 'SA', which 
+expands to 'SA' again. This pattern will loop infinitely until there is no 
+more space in the call stack. 
+
+Another weakness in my implementation is performance. There are many many 
+function calls, and I did not implement any optimizations, thus these functions
+are very slow. The amount of duplicated code in my implementation is also a 
+weakness. 
