@@ -16,19 +16,28 @@
 let subset_test0 = subset [] [1;2;3]
 let subset_test1 = subset [3;1;3] [1;2;3]
 let subset_test2 = not (subset [1;3;7] [4;1;3])
-let subset_test3 = subset [] ['a';'b';'c']
-let subset_test4 = subset ['a'] ['a']
-let subset_test5 = subset ['a'] ['a';'b']
-let subset_test6 = not (subset ['a';'b'] [])
-let subset_test7 = subset [1;1;2;3] [1;2;3;4]
-let subset_test8 = subset [1;1;2;3] [1;1;2;3;4]
+
+(* my test cases*)
+let my_subset_test0 = subset [] ['a';'b';'c']
+let my_subset_test1 = subset ['a'] ['a']
+let my_subset_test2 = subset ['a'] ['a';'b']
+let my_subset_test3 = not (subset ['a';'b'] [])
+let my_subset_test4 = subset [1;1;2;3] [1;2;3;4]
+let my_subset_test5 = subset [1;1;2;3] [1;1;2;3;4]
 
 let equal_sets_test0 = equal_sets [1;3] [3;1;3]
 let equal_sets_test1 = not (equal_sets [1;3;4] [3;1;3])
 
+(* my test cases *)
+let my_equal_sets_test0 = equal_sets [] []
+let my_equal_sets_test1 = equal_sets ["a"; "b"] ["a";"b";"a"]
+
 let set_union_test0 = equal_sets (set_union [] [1;2;3]) [1;2;3]
 let set_union_test1 = equal_sets (set_union [3;1;3] [1;2;3]) [1;2;3]
 let set_union_test2 = equal_sets (set_union [] []) []
+
+(* my test case *)
+let my_set_union_test0 = not (equal_sets (set_union [1] [2;3]) [1;2])
 
 let set_all_union_test0 =
   equal_sets (set_all_union []) []
@@ -36,8 +45,14 @@ let set_all_union_test1 =
   equal_sets (set_all_union [[3;1;3]; [4]; [1;2;3]]) [1;2;3;4]
 let set_all_union_test2 =
   equal_sets (set_all_union [[5;2]; []; [5;2]; [3;5;7]]) [2;3;5;7]
-let set_all_union_test3 = 
+
+(* my test cases *)
+let my_set_all_union_test0 = 
   equal_sets (set_all_union [[0]; [0]]) [0]
+let my_set_all_union_test1 =
+  equal_sets (set_all_union [[]; []; ["a"]]) ["a"]
+let my_set_all_union_test2 =
+  not (equal_sets (set_all_union [[]; ["a"]]) []) 
 
 let computed_fixed_point_test0 =
   computed_fixed_point (=) (fun x -> x / 2) 1000000000 = 0
@@ -51,10 +66,29 @@ let computed_fixed_point_test3 =
 			 10.)
    = 1.25)
 
+(* my test case *)
+let my_computed_fixed_point_test0 = 
+  computed_fixed_point (=) (fun x -> x / 5) 100 = 0
+
 let computed_periodic_point_test0 =
   computed_periodic_point (=) (fun x -> x / 2) 0 (-1) = -1
 let computed_periodic_point_test1 =
   computed_periodic_point (=) (fun x -> x *. x -. 1.) 2 0.5 = -1.
+
+(* my test case *)
+let my_computed_periodic_point_test0 =
+  computed_periodic_point (=) (fun x -> x - x * x) 0 2 = 2
+
+(* my test cases *)
+let my_whileseq_test0 = 
+  whileseq ((+) 3) ((>) 10) 0 = [0;3;6;9]
+let my_whileseq_test1 = 
+  whileseq ((+) 1) ((>) 10) 0 = [0;1;2;3;4;5;6;7;8;9]
+let my_whileseq_test2 = 
+  not (whileseq ((+) 3) ((>) 10) 0 = [])
+let my_whileseq_test3 = 
+  whileseq ((+) 1) ((<) 10) 0 = []
+
 
 (* An example grammar for a small subset of Awk.  *)
 
@@ -148,3 +182,24 @@ let giant_test2 =
     (Sentence,
      [Grunt, [T "khrgh"]; Shout, [T "aooogah!"];
       Sentence, [N Grunt]; Sentence, [N Shout]])
+
+(* my test cases *)
+type grammar_nts = 
+  | String | AString | BString | CString
+
+let grammar = 
+  String, 
+  [String, [N AString];
+   String, [N BString];
+   AString, [T"a"];
+   AString, [T"a"; N AString];
+   BString, [T"b"; N BString];
+   CString, [T"c"];]
+
+let my_filter_blind_alleys_test0 = 
+  filter_blind_alleys grammar =  
+  (String, 
+   [String, [N AString];
+   AString, [T"a"];
+   AString, [T"a"; N AString];
+   CString, [T"c"];])

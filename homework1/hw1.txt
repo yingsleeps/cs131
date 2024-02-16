@@ -1,0 +1,14 @@
+1. used List.mem to check if each elem of a is in b
+2. sets are equal to each other iff they are subsets of each other, so I used the subset fxn to check that
+3. used @ to join two lists
+4. used List.concat to flatten a list of lists
+5. not possible -> reasoning in comments
+6. used recursion to check to keep on applying f until a fixed point is found. a weakness here is that it does not manage cases with no fixed point. 
+7. here i made a helper function to apply f p times to the initial value x. then the computed_periodic_point function used the helper to check for a periodic point, 
+recursively applying f. same weakness as 6. 
+8. starting with the initial value, recursively check the condition + append the x value until the condition is false
+9. my initial idea was to create a list of all the nonterminable symbols in the grammar + then remove them; however i realized it would be easier to create a list of all the
+terminable symbols + check each symbol against that. to generate the list, i needed to process every symbol + rule pair, adding each eventually terminable symbol to the list
+as it is processed. i used the fixed point function to keep on checking the rules until all terminable symbols were accounted for. I needed to do this because as symbols got added 
+to the list, the rules that were previously processed could go from being nonterminable to terminable. then after this list was generated, i was able to check each rule agaisnt the 
+list and remove the ones that are nonterminable. a weakness here could be redundancy and performance issues. 
