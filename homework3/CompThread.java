@@ -6,7 +6,7 @@ public class CompThread extends Thread {
 
     // flags for first and last block
     private boolean first_block;
-    private boolean last_block;
+    private volatile boolean last_block;
 
     private byte[] dictionary;
 
@@ -19,7 +19,7 @@ public class CompThread extends Thread {
     public byte[] output; // compressed output
     public int output_size; // size of compresssed output
 
-    public boolean done = false; // flag to signify if thread has printed its output yet
+    public volatile boolean done = false; // flag to signify if thread has printed its output yet
 
     // constructor
     public CompThread (byte[] block, byte[] prev_block, int block_size, int prev_block_size, boolean first_block) {
@@ -34,12 +34,19 @@ public class CompThread extends Thread {
         }
     }
 
+    // indicate this block is the last one to compress 
     public void set_last() {
         this.last_block = true;
     }
 
-    public void set_done() {
+    // used to clear memory
+    public void clear() {
+        output = null; 
+    }
+
+    private synchronized void set_done() {
         done = true;
+        notify();
     }
 
     public void compress() {
@@ -61,14 +68,17 @@ public class CompThread extends Thread {
         ByteArrayOutputStream comp_stream = new ByteArrayOutputStream();
         int comp_bytes;
         
-        // runs until the end of the compressor input
+        // runs until all input is compressed
         while ((comp_bytes = compressor.deflate(output_buf, 0, output_buf.length, Deflater.SYNC_FLUSH)) > 0) {
             comp_stream.write(output_buf, 0, comp_bytes);
-            output_size = output_size + comp_bytes;
+            output_size = output_size + comp_bytes; // keep track of compressed data size
         }
 
         // set output for this thread 
         output = comp_stream.toByteArray();
+
+        // set done flag - indicates compression is over
+        set_done();
     }
 
     public void run() {

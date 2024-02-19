@@ -2,6 +2,9 @@ import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.util.zip.CRC32;
 import java.util.ArrayList;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 // write_int and write _short functions from messadmin code to write integers to a byte array 
 // and trailer code inspired by messadmin
@@ -10,16 +13,16 @@ import java.util.ArrayList;
 public class Pigzj {
     public final static int BLOCK_SIZE = 131072; // 128 KiB
     public final static int DICT_SIZE = 32768; // 32 KiB 
-    // available processors 
-    public static int PROCESSORS;
 
-    private static final byte[] default_header = new byte[]{31, -117, 8, 0, 0, 0, 0, 0, 0, -1};
+    public static int PROCESSORS; // available processors 
 
-    private static CRC32 crc = new CRC32(); 
-    private static long total_len = 0; 
+    private static final byte[] default_header = new byte[]{31, -117, 8, 0, 0, 0, 0, 0, 0, -1}; 
 
-    private static boolean reuse = false; 
+    private static CRC32 crc = new CRC32(); // crc for trailer
+    private static long total_len = 0; // length of input for trailer
+
     public static volatile ArrayList<byte[]> blocks = new ArrayList<byte[]>(); // list to keep track of all blocks
+    public static volatile ArrayList<CompThread> all_threads = new ArrayList<CompThread>(); // list to keep track of all threads
 
     // parse the arguments
     private static void parse_args (String[] args) {
@@ -54,13 +57,12 @@ public class Pigzj {
         }
     }
 
-	 // writes integer in Intel byte order to a byte array, starting at a
-	 // given offset.
+    // writes integer in Intel byte order to a byte array, starting at a
+    // given offset.
     private static void write_int (int i, byte[] buf, int offset) throws IOException {
 		write_short(i & 0xffff, buf, offset);
 		write_short((i >> 16) & 0xffff, buf, offset + 2);
 	}
-
 
 	// writes short integer in Intel byte order to a byte array, starting
 	// at a given offset
@@ -69,38 +71,12 @@ public class Pigzj {
 		buf[offset + 1] = (byte)((s >> 8) & 0xff);
 	}
 
-    private static synchronized void join_thread (ArrayList<CompThread> threads, byte[] block, int next, int block_num, int block_size) throws Exception {
-        // wait a thread to terminate
-        CompThread curr_t = threads.get(next);
-        curr_t.join(); 
-        curr_t.set_done();
-        System.out.write(curr_t.output, 0, curr_t.output_size); // write out its output
-
-        // create new thread for this next block + start it
-        threads.add(new CompThread(block, blocks.get(block_num - 1), block_size, BLOCK_SIZE, false));
-        threads.get(block_num).start();
-    }
-
-    private static void join_threads (ArrayList<CompThread> threads) throws Exception {
-        threads.forEach(t -> {
-            try {
-                if (!t.done) {
-                    t.join();
-                    System.out.write(t.output, 0, t.output_size);
-            }} catch (InterruptedException e) {
-                System.err.println("Error: Something went wrong joining the threads.");
-                System.exit(1);
-            }
-        });
-    } 
-
     public static void main(String[] args) throws Exception {
-        ArrayList<CompThread> threads = new ArrayList<CompThread>(); // list of all threads -- max length is PROCESSORS
         int block_num = 0; // index of current block
-        int next = 0; // first thread to wait for once we run out of processors
 
-        byte [] block = new byte[BLOCK_SIZE];
+        byte [] block = new byte[BLOCK_SIZE]; // holds block of input data
         ByteArrayOutputStream input_stream = new ByteArrayOutputStream(); // buffer to hold input bytes
+
         int bytes_read = 0;
         int bytes_sofar = 0; // keep track of how many bytes we've read so far (might take multiple reads to read one block)
 
@@ -108,10 +84,14 @@ public class Pigzj {
         byte[] trailer = new byte[8];
 
         parse_args(args); // parse options
-        
+
+        // create thread pool to manage all threads
+        ThreadPoolExecutor threads = 
+            new ThreadPoolExecutor(PROCESSORS, PROCESSORS, Long.MAX_VALUE, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+
         System.out.write(default_header); // write out header before compressed data
 
-        // check that writes are possible 
+        // check that writes are possible (catches write error case)
         if (System.out.checkError()) {
             System.err.println("Error: Could not write to stdout.");
             System.exit(1);
@@ -129,21 +109,16 @@ public class Pigzj {
 
                 // update blocks list with this block
                 blocks.add(input_stream.toByteArray());
-
-                // dispatch a thread to compress this block
-                if (!reuse) { // check if we are reusing threads yet
-                    // first block - no prev block
-                    if (block_num == 0) {
-                        threads.add(new CompThread(input_stream.toByteArray(), new byte[0], BLOCK_SIZE, 0, true));
-                        threads.get(block_num).start();
-                    } else {
-                        threads.add(new CompThread(input_stream.toByteArray(), blocks.get(block_num - 1), BLOCK_SIZE, BLOCK_SIZE, false));
-                        threads.get(block_num).start();
-                    }
-                } else { 
-                    // need to wait for currently running threads to finish
-                    join_thread(threads, input_stream.toByteArray(), next, block_num, BLOCK_SIZE);
-                    next++;
+                
+                // dispatch thread to compress this block
+                if (block_num == 0) { // if first block
+                    CompThread t = new CompThread(input_stream.toByteArray(), new byte[0], BLOCK_SIZE, 0, true);
+                    threads.execute(t); // add to thread pool
+                    all_threads.add(t); // add to list of threads 
+                } else {
+                    CompThread t = new CompThread(input_stream.toByteArray(), blocks.get(block_num - 1), BLOCK_SIZE, BLOCK_SIZE, false); 
+                    threads.execute(t);
+                    all_threads.add(t);
                 }
                 
                 // reset the input_stream to receive a new block
@@ -154,11 +129,6 @@ public class Pigzj {
 
                 // write the leftover bytes to input_stream
                 input_stream.write(block, BLOCK_SIZE - bytes_sofar, bytes_sofar);
-
-                // check if we need to reuse threads 
-                if (block_num == PROCESSORS - 1) {
-                    reuse = true;
-                }
                 
                 // increment the thread_num to use a new thread for next block
                 block_num++; 
@@ -182,26 +152,47 @@ public class Pigzj {
             blocks.add(input_stream.toByteArray());
 
             // dispatch thread to compress this last block
-            if (!reuse) { // check if we are reusing threads yet
-                // first block - no prev block
-                if (block_num == 0) {
-                    threads.add(new CompThread(input_stream.toByteArray(), new byte[0], bytes_sofar, 0, true));
-                    threads.get(block_num).set_last();
-                    threads.get(block_num).start();
-                } else {
-                    threads.add(new CompThread(input_stream.toByteArray(), blocks.get(block_num - 1), bytes_sofar, BLOCK_SIZE, false));
-                    threads.get(block_num).start();
-                }
-            } else { 
-                // need to wait for currently running threads to finish
-                join_thread(threads, input_stream.toByteArray(), next, block_num, bytes_sofar);
+            if (block_num == 0) { // if this is the first block
+                CompThread t = new CompThread(input_stream.toByteArray(), new byte[0], bytes_sofar, 0, true);
+                t.set_last(); // need to set it as last so .finish() is called
+                threads.execute(t);
+                all_threads.add(t);
+            } else {
+                CompThread t = new CompThread(input_stream.toByteArray(), blocks.get(block_num - 1), bytes_sofar, BLOCK_SIZE, false);
+                t.set_last();
+                threads.execute(t);
+                all_threads.add(t);
             }
+
         } else if (blocks.size() > 0) {
-            threads.get(blocks.size() - 1).set_last();
+            // if all data fits into blocks, set last seen block to be last
+            all_threads.get(all_threads.size() - 1).set_last();
         }
 
-        // join all threads + write out each of their outputs
-        join_threads(threads);
+        // error out if input file is empty
+        if (blocks.size() == 0) {
+            System.err.println("Error: Empty file.");
+            System.exit(1);
+        }
+
+        // tell thread pool we are done adding new threads
+        threads.shutdown();
+        
+        // loop thru threads + output the compressed data in order
+        for (CompThread t : all_threads) {
+            try {
+                synchronized (t) {
+                    while(!t.done) {
+                        t.wait();
+                    }
+                }      
+                System.out.write(t.output, 0, t.output_size);
+                t.clear();
+            } catch (InterruptedException err) {
+                System.err.println("Error: Something went wrong.");
+                System.exit(1);
+            }
+        }
         
         // write trailer after all the compressed data
         write_int((int) crc.getValue(), trailer, 0);
